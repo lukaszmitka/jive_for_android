@@ -9,8 +9,15 @@
         android:orderInCategory="2"
         android:title="@string/action_full_list"/>
     <item
-        android:id="@+id/action_server_list"
-        android:orderInCategory="2"
-        android:title="@string/action_server_list"/>
-
+        android:id="@+id/action_sort_by_device"
+        android:orderInCategory="3"
+        android:title="@string/action_sort_by_device"/>
+    <item
+        android:id="@+id/action_sort_by_class"
+        android:orderInCategory="4"
+        android:title="@string/action_sort_by_class"/>
+    <item
+        android:id="@+id/action_sort_by_server"
+        android:orderInCategory="5"
+        android:title="@string/action_sort_by_server"/>
 </menu>
