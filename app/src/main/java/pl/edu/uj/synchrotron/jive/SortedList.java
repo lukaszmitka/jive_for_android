@@ -140,14 +140,6 @@ private void showFullList() {
 	startActivity(i);
 }
 
-/**
- * Start new activity with device server list.
- */
-    /*private void showServerList() {
-        Intent i = new Intent(this, ServerList.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        startActivity(i);
-    }*/
 @Override
 protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 
@@ -161,6 +153,7 @@ protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 			editor.putString("dbPort", databasePort);
 			editor.commit();
 			System.out.println("Result: " + databaseHost + ":" + databasePort);
+			refreshDeviceList(sortingType);
 		}
 		if (resultCode == RESULT_CANCELED) {
 			System.out.println("Host not changed");
