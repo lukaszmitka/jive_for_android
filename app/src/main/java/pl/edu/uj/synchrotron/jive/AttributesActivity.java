@@ -3,6 +3,7 @@ package pl.edu.uj.synchrotron.jive;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.StrictMode;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.View;
@@ -83,7 +84,10 @@ public class AttributesActivity extends Activity implements TangoConst {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_attributes);
+	    // this allows to connect with server in main thread
+	    StrictMode.ThreadPolicy old = StrictMode.getThreadPolicy();
+	    StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder(old).permitNetwork().build());
+	    setContentView(R.layout.activity_attributes);
         intent = getIntent();
         deviceName = intent.getStringExtra("deviceName");
         dbHost = intent.getStringExtra("dbHost");
@@ -110,8 +114,9 @@ public class AttributesActivity extends Activity implements TangoConst {
         try {
             System.out.println("AttributesActivity output:");
             System.out.println("Device name: " + deviceName);
-            System.out.println("Device host: " + dbHost);
-            dp = new DeviceProxy(deviceName, dbHost, dbPort);
+	        System.out.println("Database host: " + dbHost);
+	        System.out.println("Database port: " + dbPort);
+	        dp = new DeviceProxy(deviceName, dbHost, dbPort);
             LinearLayout layout = (LinearLayout) findViewById(R.id.attributesActivityLinearLayout);
             layout.removeAllViews();
             String[] attr_list = dp.get_attribute_list();
@@ -132,7 +137,6 @@ public class AttributesActivity extends Activity implements TangoConst {
                     et.setFocusable(false);
                     et.setEnabled(false);
                 }
-                ;
                 layout.addView(view);
             }
         } catch (DevFailed e) {
