@@ -1,4 +1,11 @@
 <menu
     xmlns:tools="http://schemas.android.com/tools"
-    tools:context="pl.edu.uj.synchrotron.jive.PlotActivity">
+    tools:context="pl.edu.uj.synchrotron.restfuljive.PlotActivity">
+    <!--
+    <item
+        android:id="@+id/action_settings"
+        android:orderInCategory="100"
+        android:title="@string/action_settings"
+        app:showAsAction="never"/>
+        -->
 </menu>

@@ -12,44 +12,72 @@
     <RelativeLayout
         android:id="@+id/layout1"
         android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_below="@+id/textView1"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/textView1"
+        android:layout_marginTop="5dp"
         android:background="@color/white">
 
-        <EditText
-            android:id="@+id/textNewHost"
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/textViewTangoHost"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_alignBaseline="@+id/textViewAddress"
-            android:layout_alignParentRight="true"
-            android:layout_toRightOf="@+id/textViewAddress"
-            android:ems="10"
-            android:hint="@string/new_host_address"
-            android:maxLines="1"
+            android:layout_alignBaseline="@+id/editTextTangoHost"
+            android:layout_alignParentLeft="true"
+            android:text="@string/tango_host"
+            android:textColor="#ff000000"
             android:textSize="16sp"/>
 
         <TextView
-            android:id="@+id/textViewAddress"
-            android:layout_width="60dp"
+            android:id="@+id/textViewTangoPort"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_alignBaseline="@+id/editTextTangoPort"
             android:layout_alignParentLeft="true"
-            android:layout_centerVertical="true"
-            android:layout_marginLeft="5dp"
-            android:text="@string/host_address"
+            android:text="@string/tango_port"
+            android:textColor="#ff000000"
+            android:textSize="16sp"/>
+
+        <EditText
+            android:id="@+id/editTextTangoHost"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:hint="@string/new_tango_host"
+            android:textSize="16sp"/>
+
+        <EditText
+            android:id="@+id/editTextTangoPort"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_below="@+id/editTextTangoHost"
+            android:hint="@string/new_tango_port"
             android:textSize="16sp"/>
 
     </RelativeLayout>
 
-    <Button
-        android:id="@+id/cancelButton"
+    <RelativeLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignBaseline="@+id/okButton"
-        android:layout_alignBottom="@+id/okButton"
-        android:layout_marginLeft="20dp"
-        android:layout_toRightOf="@+id/okButton"
-        android:onClick="buttonClickCancel"
-        android:text="@string/cancel_button"/>
+        android:layout_below="@+id/layout1"
+        android:layout_centerHorizontal="true">
+
+        <Button
+            android:id="@+id/okButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_toRightOf="@+id/cancelButton"
+            android:onClick="buttonClickOk"
+            android:text="@string/ok_button"/>
+
+        <Button
+            android:id="@+id/cancelButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:onClick="buttonClickCancel"
+            android:text="@string/cancel_button"/>
+
+    </RelativeLayout>
 
     <TextView
         android:id="@+id/textView1"
@@ -59,53 +87,7 @@
         android:layout_centerHorizontal="true"
         android:layout_marginTop="20dp"
         android:text="@string/define_new_host"
-        android:textAppearance="?android:attr/textAppearanceLarge"/>
-
-    <RelativeLayout
-        android:id="@+id/relativeLayout1"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentRight="true"
-        android:layout_below="@+id/layout1"
-        android:layout_marginTop="10dp"
-        android:background="@color/white">
-
-        <EditText
-            android:id="@+id/textNewPort"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_alignBaseline="@+id/textViewPort"
-            android:layout_alignParentRight="true"
-            android:layout_toRightOf="@+id/textViewPort"
-            android:ems="10"
-            android:hint="@string/new_host_port"
-            android:textSize="16sp">
-
-            <requestFocus/>
-        </EditText>
-
-        <TextView
-            android:id="@+id/textViewPort"
-            android:layout_width="60dp"
-            android:layout_height="wrap_content"
-            android:layout_alignParentLeft="true"
-            android:layout_centerVertical="true"
-            android:layout_marginLeft="5dp"
-            android:text="@string/host_port"
-            android:textSize="16sp"/>
-
-    </RelativeLayout>
-
-    <Button
-        android:id="@+id/okButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignLeft="@+id/relativeLayout1"
-        android:layout_below="@+id/relativeLayout1"
-        android:layout_marginLeft="31dp"
-        android:layout_marginTop="14dp"
-        android:onClick="buttonClickOk"
-        android:text="@string/ok_button"/>
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:textColor="#ff000000"/>
 
 </RelativeLayout>

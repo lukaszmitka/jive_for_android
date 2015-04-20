@@ -1,14 +1,12 @@
-<LinearLayout
-    style="@style/AppTheme"
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:paddingBottom="0dp"
-    android:paddingLeft="0dp"
-    android:paddingRight="0dp"
-    android:paddingTop="0dp"
-    tools:context="pl.edu.uj.synchrotron.plot.PlotActivity">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:paddingBottom="0dp"
+              android:paddingLeft="0dp"
+              android:paddingRight="0dp"
+              android:paddingTop="0dp"
+              tools:context="pl.edu.uj.synchrotron.plot.PlotActivity">
 
     <com.androidplot.xy.XYPlot
         android:id="@+id/mySimpleXYPlot"
