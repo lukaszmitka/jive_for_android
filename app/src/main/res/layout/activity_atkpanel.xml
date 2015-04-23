@@ -9,17 +9,9 @@
                 android:paddingTop="@dimen/activity_vertical_margin"
                 tools:context="pl.edu.uj.synchrotron.restfuljive.ATKPanelActivity">
 
-    <!--<Spinner
-        android:id="@+id/atk_panel_command_spinner"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
-        android:layout_alignParentRight="true"
-        android:layout_alignParentTop="true"/>-->
-
     <view
         android:id="@+id/atk_panel_command_spinner"
-        class="pl.edu.uj.synchrotron.restfuljive.NoSelectionSpinner"
+        class="pl.edu.uj.synchrotron.jive.NoSelectionSpinner"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentEnd="true"

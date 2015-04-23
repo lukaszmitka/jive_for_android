@@ -21,10 +21,10 @@
             android:windowSoftInputMode="stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
+
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
         <activity
             android:name=".SetHostActivity"
             android:label="@string/title_activity_set_host"
@@ -53,5 +53,14 @@
             android:name=".ImagePlotActivity"
             android:label="@string/title_activity_image_plot">
         </activity>
+        <activity
+            android:name=".ATKPanelActivity"
+            android:label="@string/title_activity_atkpanel">
+        </activity>
+        <activity
+            android:name=".SetDeviceActivity"
+            android:label="@string/title_activity_set_device">
+        </activity>
     </application>
+
 </manifest>
