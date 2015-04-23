@@ -10,20 +10,23 @@ import android.util.Log;
 import android.widget.EditText;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
+import android.widget.TextView;
 
 import com.androidplot.xy.XYPlot;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import fr.esrf.Tango.DevFailed;
 import fr.esrf.TangoDs.TangoConst;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-public class ATKPanelActivity extends WifiMonitorActivity implements TangoConst {
+public class ATKPanelActivity extends WifiMonitorActivity implements TangoConst, ATKPanelCallback {
 private static final int DEFAULT_REFRESHING_PERIOD = 1000;
 private int refreshingPeriod = DEFAULT_REFRESHING_PERIOD;
 private static final AtomicInteger sNextGeneratedId = new AtomicInteger(1);
@@ -52,6 +55,9 @@ private ScrollView scrollView;
 private RelativeLayout relativeLayout;
 private int maxId, minId, plotId, scaleId;
 private String userName, userPassword;
+private String deviceStatus;
+private StatusRunnable statusRunnable;
+private Thread statusThread;
 
 /**
  * Generate a value suitable for use in setId
@@ -126,6 +132,15 @@ protected void onCreate(Bundle savedInstanceState) {
 			//populatePanel();
 		}
 	}
+
+	statusRunnable = new StatusRunnable(this, deviceName, tangoHost, tangoPort);
+	if (statusThread != null) {
+		if (statusThread.isAlive()) {
+			statusThread.interrupt();
+		}
+	}
+	statusThread = new Thread(statusRunnable);
+	statusThread.start();
 
 	// define thread for refreshing attribute values
 	/*rAttributes = new Runnable() {
@@ -335,45 +350,13 @@ protected void onCreate(Bundle savedInstanceState) {
 		}
 	};*/
 
-	// define thread for refreshing attribute values
-	/*rStatus = new Runnable() {
-		@Override
-		public void run() {
 
-			final String urlGetStatus = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort +
-					"/Device/" + deviceName + "/command_inout/Status/DevVoidArgument";
-			HeaderJsonObjectRequest jsObjRequestStatus =
-					new HeaderJsonObjectRequest(Request.Method.PUT, urlGetStatus, null, new Response.Listener<JSONObject>() {
-						@Override
-						public void onResponse(JSONObject response) {
-							try {
-								if (response.getString("connectionStatus").equals("OK")) {
-									Log.d("rStatus.run()", "Device connection OK / Method PUT /  received status");
-									Log.d("rStatus.run()", "From host: " + urlGetStatus);
-									populateStatus(response);
-								} else {
-									Log.d("rStatus.run()", "Tango database API returned message:");
-									Log.d("rStatus.run()", response.getString("connectionStatus"));
-								}
-							} catch (JSONException e) {
-								Log.d("rStatus.run()", "Problem with JSON object");
-								e.printStackTrace();
-							}
-						}
-					}, new Response.ErrorListener() {
-						@Override
-						public void onErrorResponse(VolleyError error) {
-							jsonRequestErrorHandler(error);
-						}
-					}, userName, userPassword);
-			jsObjRequestStatus.setShouldCache(false);
-			queue.add(jsObjRequestStatus);
-		}
-	};
+	/*
 	statusFuture = scheduler.scheduleAtFixedRate(rStatus, refreshingPeriod, refreshingPeriod, MILLISECONDS);
 	*/
 
 }
+
 /*
 @Override
 public boolean onCreateOptionsMenu(Menu menu) {
@@ -516,6 +499,12 @@ protected void onDestroy() {
 	}
 	if (statusFuture != null) {
 		statusFuture.cancel(true);
+	}
+
+	if (statusThread != null) {
+		if (statusThread.isAlive()) {
+			statusThread.interrupt();
+		}
 	}
 }
 
@@ -1023,18 +1012,44 @@ private void setHost() {
 	queue.add(jsObjRequest);
 }*/
 
-/*private void updateScalarListView(JSONObject response) {
+/**
+ * Method updating values of scalar attributes.
+ *
+ * @param response HashMap containing attribute IDs and values
+ */
+public void updateScalarListView(HashMap<String, String> response) {
 	EditText editText;
-	try {
-		int attCount = response.getInt("attCount");
-		for (int i = 0; i < attCount; i++) {
-			editText = (EditText) findViewById(response.getInt("attID" + i));
-			editText.setText(response.getString("attValue" + i));
-		}
-	} catch (JSONException e) {
-		e.printStackTrace();
-	}
 
-}*/
+	int attCount = Integer.parseInt(response.get("attCount"));
+	for (int i = 0; i < attCount; i++) {
+		editText = (EditText) findViewById(Integer.parseInt(response.get("attID" + i)));
+		editText.setText(response.get("attValue" + i));
+	}
+}
+
+public void displayErrorMessage(final String message, DevFailed e) {
+	// print error to LogCat
+	Log.d("displayErrorMessage()", "Error occured!");
+	e.printStackTrace();
+
+	// show dialog box with error message
+	AlertDialog.Builder builder = new AlertDialog.Builder(context);
+	builder.setMessage(e.toString()).setTitle("Error!").setPositiveButton(getString(R.string.ok_button),
+			null);
+	AlertDialog dialog = builder.create();
+	dialog.show();
+}
+
+public void populateStatus(String status) {
+	deviceStatus = status;
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			TextView statusTextView = (TextView) findViewById(R.id.atk_panel_status_text_view);
+			statusTextView.setText(deviceStatus);
+		}
+	});
+
+}
 
 }
