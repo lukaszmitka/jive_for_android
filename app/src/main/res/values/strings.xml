@@ -154,4 +154,6 @@
     <color name="gray">#FFDDDDDD</color>
     <color name="white">#FFFFFFFF</color>
 
+    <string name="hello_world">Hello world!</string>
+
 </resources>
