@@ -5,59 +5,78 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.androidplot.ui.AnchorPosition;
+import com.androidplot.ui.DynamicTableModel;
+import com.androidplot.ui.SizeLayoutType;
+import com.androidplot.ui.SizeMetrics;
+import com.androidplot.ui.XLayoutStyle;
+import com.androidplot.ui.YLayoutStyle;
+import com.androidplot.xy.LineAndPointFormatter;
+import com.androidplot.xy.PointLabelFormatter;
+import com.androidplot.xy.SimpleXYSeries;
 import com.androidplot.xy.XYPlot;
+import com.androidplot.xy.XYSeries;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import fr.esrf.Tango.DevFailed;
 import fr.esrf.TangoDs.TangoConst;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 public class ATKPanelActivity extends WifiMonitorActivity implements TangoConst, ATKPanelCallback {
 private static final int DEFAULT_REFRESHING_PERIOD = 1000;
 private int refreshingPeriod = DEFAULT_REFRESHING_PERIOD;
 private static final AtomicInteger sNextGeneratedId = new AtomicInteger(1);
+
 private final Context context = this;
-private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-private List<String> commandArray;
-private List<String> commandInTypeArray;
-private List<String> commandOutTypeArray;
-private List<String> scalarAttrbuteArray;
-private List<String> nonScalarAttributeArray;
+private boolean firstSelection, threadsInterrupted = false;
 private boolean[] attributeWritableArray;
-private String attributeName;
-private String plotAttributeName;
-private String deviceName;
-private String tangoHost;
-private String tangoPort;
+
+private String attributeName, plotAttributeName, deviceName, tangoHost, tangoPort, commandOut, plotLabel, deviceStatus,
+		message;
+private String[] commandNamesArray;
+private List<String> commandArray, commandInTypeArray, commandOutTypeArray, scalarAttrbuteArray, nonScalarAttributeArray;
+private HashMap<String, String> hmResponse, request;
+
+private int plotHeight, plotWidth, maxId, minId, plotId, scaleId, numberOfScalars, numberOfCommands;
+private int[] commandInTypesArray, commandOutTypesArray;
 private int[][] ids;
-private int numberOfScalars;
-private Runnable currentRunnable, rAttributes, rStatus, rAttributePlot;
-private ScheduledFuture attributeFuture, statusFuture;
-private boolean firstSelection;
-private Number[] series1Numbers;
+private Number[] plotSeries;
+private double[][] doublePlotSeries;
+
 private XYPlot plot;
-private int plotHeight, plotWidth;
 private ScrollView scrollView;
 private RelativeLayout relativeLayout;
-private int maxId, minId, plotId, scaleId;
-private String userName, userPassword;
-private String deviceStatus;
 private StatusRunnable statusRunnable;
-private Thread statusThread;
+private AttributeListRunnable attributeListRunnable;
+private AttributesRunnable attributesRunnable;
+private PlotRunnable plotRunnable;
+private CommandListRunnable commandListRunnable;
+private CommandExecuteRunnable commandExecuteRunnable;
+private Thread statusThread, attributeListThread, attributesThread, plotThread, commandListThread, commandExecuteThread,
+		attributeUpdateThread;
 
 /**
  * Generate a value suitable for use in setId
@@ -133,231 +152,28 @@ protected void onCreate(Bundle savedInstanceState) {
 		}
 	}
 
-	statusRunnable = new StatusRunnable(this, deviceName, tangoHost, tangoPort);
+	statusRunnable = new StatusRunnable(this, deviceName, tangoHost, tangoPort, refreshingPeriod);
 	if (statusThread != null) {
-		if (statusThread.isAlive()) {
-			statusThread.interrupt();
-		}
+		statusThread.interrupt();
 	}
 	statusThread = new Thread(statusRunnable);
 	statusThread.start();
 
-	// define thread for refreshing attribute values
-	/*rAttributes = new Runnable() {
-		@Override
-		public void run() {
-			JSONObject request = new JSONObject();
-			try {
-				request.put("attCount", numberOfScalars);
-				for (int i = 0; i < numberOfScalars; i++) {
-					request.put("att" + i, scalarAttrbuteArray.get(i));
-					request.put("attID" + i, ids[i][2]);
-				}
-			} catch (JSONException e) {
-				e.printStackTrace();
-			}
-			final String urlReadAttributesQuery = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort +
-					"/Device/" + deviceName + "/read_attributes";
-			HeaderJsonObjectRequest jsObjRequestReadAttributes =
-					new HeaderJsonObjectRequest(Request.Method.PUT, urlReadAttributesQuery, request,
-							new Response.Listener<JSONObject>() {
-								@Override
-								public void onResponse(JSONObject response) {
-									try {
-										if (response.getString("connectionStatus").equals("OK")) {
-											Log.d("rAttibutes.run()", "Device connection OK / method PUT / got attribute values");
-											Log.d("rAttibutes.run()", "From host: " + urlReadAttributesQuery);
-											updateScalarListView(response);
-										} else {
-											Log.d("rAttibutes.run()", "Tango database API returned message:");
-											Log.d("rAttibutes.run()", response.getString("connectionStatus"));
-										}
-									} catch (JSONException e) {
-										Log.d("Runnable run()", "Problem with JSON object");
-										e.printStackTrace();
-									}
-								}
-							}, new Response.ErrorListener() {
-						@Override
-						public void onErrorResponse(VolleyError error) {
-							jsonRequestErrorHandler(error);
-						}
-					}, userName, userPassword);
-			//queue.getCache().clear();
-			jsObjRequestReadAttributes.setShouldCache(false);
-			queue.add(jsObjRequestReadAttributes);
-		}
-	};*/
+	attributeListRunnable = new AttributeListRunnable(this, deviceName, tangoHost, tangoPort);
+	if (attributeListThread != null) {
+		attributeListThread.interrupt();
+	}
+	attributeListThread = new Thread(attributeListRunnable);
+	attributeListThread.start();
 
-	/*rAttributePlot = new Runnable() {
-		@Override
-		public void run() {
-			Log.d("rAttributePlot.run()", "Sending plot request");
-			String url = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort + "/Device/" + deviceName +
-					"/plot_attribute/" + plotAttributeName;
-			System.out.println("Sending JSON request");
-			HeaderJsonObjectRequest jsObjRequest =
-					new HeaderJsonObjectRequest(Request.Method.GET, url, null, new Response.Listener<JSONObject>() {
-						@Override
-						public void onResponse(JSONObject response) {
-							try {
-								if (response.getString("connectionStatus").equals("OK")) {
-									Log.d("rAttributePlot.run()", "Device connection OK");
-									String dataFormat = response.getString("dataFormat");
-									String plotLabel = response.getString("plotLabel");
-									switch (dataFormat) {
-										case "SPECTRUM":
-											plot = new XYPlot(context, "");
-											plotHeight = scrollView.getHeight();
-											plot.setMinimumHeight(plotHeight);
-											Log.d("populateAttributePlot()", "Plot height set to: " + plotHeight);
-											relativeLayout.removeAllViews();
-											relativeLayout.addView(plot);
-											JSONArray array = response.getJSONArray("plotData");
-											series1Numbers = new Number[array.length()];
-											Log.v("rAttributePlot.run()", "Have " + series1Numbers.length + " elements");
-											for (int j = 0; j < series1Numbers.length; j++) {
-												series1Numbers[j] = array.getDouble(j);
-												Log.v("rAttributePlot.run()", "Data to plot: " + series1Numbers[j]);
-											}
-
-											XYSeries series1;
-											series1 =
-													new SimpleXYSeries(Arrays.asList(series1Numbers), SimpleXYSeries.ArrayFormat
-															.Y_VALS_ONLY,
-															plotLabel);
-
-											LineAndPointFormatter series1Format = new LineAndPointFormatter();
-											series1Format.setPointLabelFormatter(new PointLabelFormatter());
-											series1Format.configure(getApplicationContext(), R.xml.line_point_formatter_with_plf1);
-
-											// add a new series' to the xyplot:
-											plot.addSeries(series1, series1Format);
-											plot.setTicksPerRangeLabel(3);
-											plot.getGraphWidget().setDomainLabelOrientation(-45);
-											plot.getLegendWidget().setTableModel(new DynamicTableModel(1, 1));
-											plot.getLegendWidget()
-													.position(10, XLayoutStyle.ABSOLUTE_FROM_LEFT, 10,
-															YLayoutStyle.ABSOLUTE_FROM_BOTTOM,
-															AnchorPosition.LEFT_BOTTOM);
-											plot.getLegendWidget()
-													.setSize(new SizeMetrics(55, SizeLayoutType.ABSOLUTE, 100, SizeLayoutType.FILL));
-											break;
-										case "IMAGE":
-											TextView textViewMaxValue = prepareTextViewMaxValue(maxId);
-											TextView textViewMinValue = prepareTextViewMinValue(minId);
-											ImageView imageViewScale = prepareScaleImageView(maxId, scaleId);
-											ImageView imageViewPlot = preparePlotImageView(scaleId, plotId);
-											plotHeight = scrollView.getHeight();
-											plotWidth = scrollView.getWidth() - 50;
-											if (plotHeight < plotWidth) {
-												imageViewPlot.setMinimumHeight(plotHeight);
-												imageViewPlot.setMinimumWidth(plotHeight);
-											} else {
-												imageViewPlot.setMinimumHeight(plotWidth);
-												imageViewPlot.setMinimumWidth(plotWidth);
-											}
-
-											imageViewScale.setMinimumWidth(20);
-											imageViewScale.setMinimumHeight(plotHeight);
-											Log.d("rAttributePlot.run() IM", "Plot height: " + plotHeight);
-											imageViewScale.setScaleType(ImageView.ScaleType.FIT_XY);
-
-											relativeLayout.removeAllViews();
-											relativeLayout.addView(textViewMaxValue);
-											relativeLayout.addView(textViewMinValue);
-											relativeLayout.addView(imageViewPlot);
-											relativeLayout.addView(imageViewScale);
-
-											int rows = response.getInt("rows");
-											int cols = response.getInt("cols");
-											JSONArray oneDimArray;
-											double[][] ivalues = new double[rows][cols];
-											for (int i = 0; i < rows; i++) {
-												oneDimArray = response.getJSONArray("row" + i);
-												for (int j = 0; j < cols; j++) {
-													ivalues[i][j] = oneDimArray.getDouble(j);
-												}
-											}
-
-											Bitmap b = Bitmap.createBitmap(ivalues.length, ivalues[0].length,
-													Bitmap.Config.RGB_565);
-											double minValue = ivalues[0][0];
-											double maxValue = ivalues[0][0];
-											for (int i = 0; i < ivalues.length; i++) {
-												for (int j = 0; j < ivalues[0].length; j++) {
-													if (minValue > ivalues[i][j]) {
-														minValue = ivalues[i][j];
-													}
-													if (maxValue < ivalues[i][j]) {
-														maxValue = ivalues[i][j];
-													}
-												}
-											}
-											System.out.println("Min: " + minValue + "Max: " + maxValue);
-											double range = maxValue - minValue;
-											float step = (float) (330 / range);
-
-											int color;
-											float hsv[] = {0, 1, 1};
-
-											for (int i = 1; i < ivalues.length; i++) {
-												for (int j = 1; j < ivalues[0].length; j++) {
-													hsv[0] = 330 - (float) (ivalues[i][j] * step);
-													color = Color.HSVToColor(hsv);
-													b.setPixel(ivalues.length - i, ivalues[0].length - j, color);
-												}
-											}
-											imageViewPlot.setImageBitmap(b);
-
-											textViewMaxValue.setText("" + maxValue);
-											textViewMinValue.setText("" + minValue);
-											Bitmap scaleBitmap = Bitmap.createBitmap(20, 330, Bitmap.Config.RGB_565);
-											for (int j = 0; j < 330; j++) {
-												hsv[0] = j;
-												color = Color.HSVToColor(hsv);
-												for (int k = 0; k < 20; k++) {
-													scaleBitmap.setPixel(k, j, color);
-												}
-											}
-											imageViewScale.setImageBitmap(scaleBitmap);
-											imageViewScale.setScaleType(ImageView.ScaleType.FIT_XY);
-											break;
-									}
-								} else {
-									AlertDialog.Builder builder = new AlertDialog.Builder(context);
-									String res = response.getString("connectionStatus");
-									System.out.println("Tango database API returned message:");
-									System.out.println(res);
-									builder.setTitle("Reply");
-									builder.setMessage(res);
-									AlertDialog dialog = builder.create();
-									dialog.show();
-								}
-							} catch (JSONException e) {
-								System.out.println("Problem with JSON object");
-								e.printStackTrace();
-							}
-						}
-					}, new Response.ErrorListener() {
-						@Override
-						public void onErrorResponse(VolleyError error) {
-							jsonRequestErrorHandler(error);
-						}
-					}, userName, userPassword);
-			jsObjRequest.setShouldCache(false);
-			queue.add(jsObjRequest);
-		}
-	};*/
-
-
-	/*
-	statusFuture = scheduler.scheduleAtFixedRate(rStatus, refreshingPeriod, refreshingPeriod, MILLISECONDS);
-	*/
-
+	commandListRunnable = new CommandListRunnable(this, deviceName, tangoHost, tangoPort);
+	if (commandListThread != null) {
+		commandListThread.interrupt();
+	}
+	commandListThread = new Thread(commandListRunnable);
+	commandListThread.start();
 }
 
-/*
 @Override
 public boolean onCreateOptionsMenu(Menu menu) {
 	// Inflate the menu; this adds items to the action bar if it is present.
@@ -429,17 +245,13 @@ private TextView prepareTextViewMinValue(int minId) {
 
 @Override
 public boolean onOptionsItemSelected(MenuItem item) {
-	// Handle action bar item clicks here. The action bar will
-	// automatically handle clicks on the Home/Up button, so long
-	// as you specify a parent activity in AndroidManifest.xml.
 	int id = item.getItemId();
-	//noinspection SimplifiableIfStatement
 	if (id == R.id.action_set_refreshing_period) {
 		setRefreshingPeriod();
 		return true;
 	}
 	return super.onOptionsItemSelected(item);
-}*/
+}
 
 /**
  * Start new activity for getting from user database host address and port.
@@ -460,6 +272,7 @@ private void setRefreshingPeriod() {
 	// Set an EditText view to get user input
 	final EditText input = new EditText(this);
 	input.setHint(R.string.hint_period_in_ms);
+	input.setInputType(InputType.TYPE_CLASS_NUMBER);
 	input.setText("" + refreshingPeriod);
 	alert.setView(input);
 
@@ -468,18 +281,34 @@ private void setRefreshingPeriod() {
 			String value = input.getText().toString();
 			int period = Integer.parseInt(value);
 			if (period > 0) {
-				if (attributeFuture != null) {
-					attributeFuture.cancel(true);
-				}
-				attributeFuture = scheduler.scheduleAtFixedRate(currentRunnable, period, period, MILLISECONDS);
-
-				if (statusFuture != null) {
-					statusFuture.cancel(true);
-				}
-
-				statusFuture = scheduler.scheduleAtFixedRate(rStatus, period, period, MILLISECONDS);
-
 				refreshingPeriod = period;
+				if (statusThread != null) {
+					if (statusThread.isAlive()) {
+						statusThread.interrupt();
+						statusRunnable = new StatusRunnable((ATKPanelCallback) context, deviceName, tangoHost, tangoPort,
+								refreshingPeriod);
+						statusThread = new Thread(statusRunnable);
+						statusThread.start();
+					}
+				}
+				if (attributesThread != null) {
+					if (attributesThread.isAlive()) {
+						attributesThread.interrupt();
+						attributesRunnable = new AttributesRunnable((ATKPanelCallback) context, deviceName, tangoHost, tangoPort,
+								request, refreshingPeriod);
+						attributesThread = new Thread(attributesRunnable);
+						attributesThread.start();
+					}
+				}
+				if (plotThread != null) {
+					if (plotThread.isAlive()) {
+						plotThread.interrupt();
+						plotRunnable = new PlotRunnable((ATKPanelCallback) context, deviceName, tangoHost, tangoPort,
+								plotAttributeName, refreshingPeriod);
+						plotThread = new Thread(plotRunnable);
+						plotThread.start();
+					}
+				}
 			}
 		}
 	});
@@ -493,19 +322,39 @@ private void setRefreshingPeriod() {
 
 @Override
 protected void onDestroy() {
-	super.onDestroy();
-	if (attributeFuture != null) {
-		attributeFuture.cancel(true);
+	Log.d("onDestroy()", "Stopping application");
+	threadsInterrupted = true;
+	if (attributeListThread != null) {
+		Log.d("onDestroy()", "attributeListThread is not null");
+		Log.d("onDestroy()", "Stopping attributeListThread");
+		attributeListThread.interrupt();
 	}
-	if (statusFuture != null) {
-		statusFuture.cancel(true);
+	if (attributesThread != null) {
+		Log.d("onDestroy()", "attributesThread is not null");
+		Log.d("onDestroy()", "Stopping attributesThread");
+		attributesThread.interrupt();
 	}
-
+	if (plotThread != null) {
+		Log.d("onDestroy()", "plotThread is not null");
+		Log.d("onDestroy()", "Stopping plotThread");
+		plotThread.interrupt();
+	}
 	if (statusThread != null) {
-		if (statusThread.isAlive()) {
-			statusThread.interrupt();
-		}
+		Log.d("onDestroy()", "statusThread is not null");
+		Log.d("onDestroy()", "Stopping statusThread");
+		statusThread.interrupt();
 	}
+	if (commandListThread != null) {
+		Log.d("onDestroy()", "commandListThread is not null");
+		Log.d("onDestroy()", "Stopping commandListThread");
+		commandListThread.interrupt();
+	}
+	// this line should be at the end of the method
+	super.onDestroy();
+}
+
+public boolean areThreadsInterrupted() {
+	return threadsInterrupted;
 }
 
 @Override
@@ -563,250 +412,86 @@ private void setHost() {
 	startActivityForResult(i, 1);
 }
 
-/*private void populatePanel() {
-	Log.v("populatePanel()", "Populating panel");
-	String urlCommandListQuery = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort +
-			"/Device/" + deviceName + "/command_list_query";
-	HeaderJsonObjectRequest jsObjRequestCommands =
-			new HeaderJsonObjectRequest(Request.Method.GET, urlCommandListQuery, null, new Response.Listener<JSONObject>() {
-				@Override
-				public void onResponse(JSONObject response) {
-					try {
-						if (response.getString("connectionStatus").equals("OK")) {
-							Log.d("populatePanel()", "Device connection OK - received command list");
-							populateCommandSpinner(response);
-						} else {
-							Log.d("populatePanel()", "Tango database API returned message:");
-							Log.d("populatePanel()", response.getString("connectionStatus"));
-						}
-					} catch (JSONException e) {
-						Log.d("ATK Panel populatePanel", "Problem with JSON object");
-						e.printStackTrace();
-					}
-				}
-			}, new Response.ErrorListener() {
-				@Override
-				public void onErrorResponse(VolleyError error) {
-					jsonRequestErrorHandler(error);
-				}
-			}, userName, userPassword);
-	jsObjRequestCommands.setShouldCache(false);
-	queue.add(jsObjRequestCommands);
-
-	String urlGetAttribuesList = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort +
-			"/Device/" + deviceName + "/get_attribute_list";
-	HeaderJsonObjectRequest jsObjRequestAttributeList =
-			new HeaderJsonObjectRequest(Request.Method.GET, urlGetAttribuesList, null, new Response.Listener<JSONObject>() {
-				@Override
-				public void onResponse(JSONObject response) {
-					try {
-						if (response.getString("connectionStatus").equals("OK")) {
-							Log.d("populatePanel()", "Device connection OK - received attribute list");
-							populateAttributeSpinner(response);
-						} else {
-							Log.d("populatePanel()", "Tango database API returned message:");
-							Log.d("populatePanel()", response.getString("connectionStatus"));
-						}
-					} catch (JSONException e) {
-						Log.d("ATK Panel populatePanel", "Problem with JSON object");
-						e.printStackTrace();
-					}
-				}
-			}, new Response.ErrorListener() {
-				@Override
-				public void onErrorResponse(VolleyError error) {
-					jsonRequestErrorHandler(error);
-				}
-			}, userName, userPassword);
-	jsObjRequestAttributeList.setShouldCache(false);
-	queue.add(jsObjRequestAttributeList);
-}*/
-
-/**
- * Method displaying info about connection error
- *
- * @param error Error tah caused exception
- */
-/*private void jsonRequestErrorHandler(VolleyError error) {
-	// Print error message to LogcCat
-	Log.d("jsonRequestErrorHandler", "Connection error!");
-	error.printStackTrace();
-
-	// show dialog box with error message
-	AlertDialog.Builder builder = new AlertDialog.Builder(context);
-	builder.setMessage(error.toString()).setTitle("Connection error!").setPositiveButton(getString(R.string.ok_button),
-			null);
-	AlertDialog dialog = builder.create();
-	dialog.show();
-}*/
-
-/*private void populateCommandSpinner(JSONObject response) {
-	Log.d("populateCommandSpinner", "Populating command spinner");
-	commandArray = new ArrayList<>();
-	commandInTypeArray = new ArrayList<>();
-	commandOutTypeArray = new ArrayList<>();
-	try {
-		int commandCount = response.getInt("commandCount");
-		//String commandName;
-		for (int i = 0; i < commandCount; i++) {
-			commandArray.add(i, response.getString("command" + i));
-			commandInTypeArray.add(i, Tango_CmdArgTypeName[response.getInt("inType" + i)]);
-			commandOutTypeArray.add(i, Tango_CmdArgTypeName[response.getInt("outType" + i)]);
-			Log.v("populateCommandSpinner",
-					"Command " + commandArray.get(i) + ", inType: " + commandInTypeArray.get(i) + ", " +
-							"outType: " + commandOutTypeArray.get(i));
-		}
-		ArrayAdapter<String> adapter = new ArrayAdapter<>(
-				this, android.R.layout.simple_spinner_item, commandArray);
-		adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-		NoSelectionSpinner sItems = (NoSelectionSpinner) findViewById(R.id.atk_panel_command_spinner);
-		sItems.setAdapter(adapter);
-		//sItems.setSelection(0, false);
-		sItems.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-			@Override
-			public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
-				if (firstSelection) {
-					Log.d("populateCommandSpinner", "Command spinner first selection, omitting action");
-					firstSelection = false;
-				} else {
-
-					Log.d("populateCommandSpinner", "Position: " + position);
-					final String commandName = commandArray.get(position);
-					String commandInType = commandInTypeArray.get(position);
-					Log.d("populateCommandSpinner", "Executing " + commandName + ", inType: " + commandInType);
-					if (commandInType.equals("DevVoid")) {
-						Log.d("populateCommandSpinner", "Command run wth void argument");
-						executeCommand(commandName, "DevVoidArgument");
-					} else {
-						Log.d("populateCommandSpinner", "Prompt for command argument");
-						AlertDialog.Builder alert = new AlertDialog.Builder(context);
-						alert.setTitle(getString(R.string.command_input));
-
-						// Set an EditText view to get user input
-						final EditText input = new EditText(context);
-						alert.setMessage(getString(R.string.command_input_type) + commandInType);
-						alert.setView(input);
-						alert.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
-							public void onClick(DialogInterface dialog, int whichButton) {
-								executeCommand(commandName, input.getText().toString());
-							}
-						});
-
-						alert.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
-							public void onClick(DialogInterface dialog, int whichButton) { }
-						});
-
-						alert.show();
-					}
-				}
-			}
-
-			@Override
-			public void onNothingSelected(AdapterView<?> parentView) {
-			}
-
-		});
-	} catch (JSONException e) {
-		e.printStackTrace();
+private void startAttributeRefreshing() {
+	// define thread for refreshing attribute values
+	request = new HashMap<>();
+	numberOfScalars = scalarAttrbuteArray.size();
+	request.put("attCount", "" + numberOfScalars);
+	Log.d("startAttRef", "Att count: " + numberOfScalars);
+	for (int i = 0; i < numberOfScalars; i++) {
+		Log.d("startAttRef", "Attribute[" + i + "] name: " + scalarAttrbuteArray.get(i));
+		Log.d("startAttRef", "Result: " + deviceName);
+		request.put("att" + i, scalarAttrbuteArray.get(i));
+		request.put("attID" + i, "" + ids[i][2]);
 	}
-}*/
-
-/*private void executeCommand(String commandName, String arginStr) {
-
-	String url = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort + "/Device/" + deviceName +
-			"/command_inout/" +
-			commandName + "/" + arginStr;
-	HeaderJsonObjectRequest jsObjRequest =
-			new HeaderJsonObjectRequest(Request.Method.PUT, url, null, new Response.Listener<JSONObject>() {
-				@Override
-				public void onResponse(JSONObject response) {
-					try {
-						if (response.getString("connectionStatus").equals("OK")) {
-							Log.d("ATK  executeCommand", "Device connection OK");
-							String commandOut = response.getString("commandReply");
-							String commandOutType = response.getString("commandOutType");
-							if (commandOutType.equals("DevVoid")) {
-								Toast.makeText(context, getString(R.string.command_execution_confirmation), Toast.LENGTH_SHORT)
-										.show();
-							} else {
-								AlertDialog.Builder builder = new AlertDialog.Builder(context);
-								builder.setMessage(commandOut).setTitle("Command output");
-								builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
-									public void onClick(DialogInterface dialog, int id) {
-									}
-								});
-								AlertDialog dialog = builder.create();
-								dialog.show();
-							}
-						} else {
-							Log.d("ATK executeCommand", "Tango database API returned message:");
-							Log.d("ATK executeCommand", response.getString("connectionStatus"));
-							Toast.makeText(context,
-									getString(R.string.command_execution_error) + response.getString("connectionStatus"),
-									Toast.LENGTH_SHORT).show();
-						}
-					} catch (JSONException e) {
-						Log.d("ATK executeCommand", "Problem with JSON object");
-						e.printStackTrace();
-					}
-				}
-			}, new Response.ErrorListener() {
-				@Override
-				public void onErrorResponse(VolleyError error) {
-					jsonRequestErrorHandler(error);
-				}
-			}, userName, userPassword);
-	jsObjRequest.setShouldCache(false);
-	queue.add(jsObjRequest);
-}*/
-
-/*private void populateStatus(JSONObject response) {
-	try {
-		String status = response.getString("commandReply");
-		TextView statusTextView = (TextView) findViewById(R.id.atk_panel_status_text_view);
-		statusTextView.setText(status);
-	} catch (JSONException e) {
-		e.printStackTrace();
+	// set new thread with Attributes runnable
+	attributesRunnable = new AttributesRunnable(this, deviceName, tangoHost, tangoPort, request, refreshingPeriod);
+	if (attributesThread != null) {
+		attributesThread.interrupt();
 	}
-}*/
+	if (plotThread != null) {
+		plotThread.interrupt();
+	}
+	attributesThread = new Thread(attributesRunnable);
+	attributesThread.start();
+}
 
-/*private void populateAttributeSpinner(JSONObject response) {
-	Log.d("popAttributeSpinner", "Populating attribute spinner");
-	scalarAttrbuteArray = new ArrayList<>();
-	nonScalarAttributeArray = new ArrayList<>();
-
-	try {
-		int attributeCount = response.getInt("attCount");
-		attributeWritableArray = new boolean[attributeCount];
-		for (int i = 0; i < attributeCount; i++) {
-			attributeName = response.getString("attribute" + i);
-			if (response.getBoolean("attScalar" + i)) {
-				if (!attributeName.equals("State") && !attributeName.equals("Status")) {
-					scalarAttrbuteArray.add(attributeName);
-					attributeWritableArray[i] = response.getBoolean("attWritable" + i);
-				}
-			} else {
-				nonScalarAttributeArray.add(attributeName);
+public void populateCommandSpinner(String[] commandNames, int[] commandInType, int[] commandOutType, int commandCount) {
+	numberOfCommands = commandCount;
+	commandNamesArray = commandNames;
+	commandInTypesArray = commandInType;
+	commandOutTypesArray = commandOutType;
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			Log.d("populateCommandSpinner", "Populating command spinner");
+			commandArray = new ArrayList<>();
+			commandInTypeArray = new ArrayList<>();
+			commandOutTypeArray = new ArrayList<>();
+			for (int i = 0; i < numberOfCommands; i++) {
+				commandArray.add(i, commandNamesArray[i]);
+				commandInTypeArray.add(i, Tango_CmdArgTypeName[commandInTypesArray[i]]);
+				commandOutTypeArray.add(i, Tango_CmdArgTypeName[commandOutTypesArray[i]]);
+				Log.v("populateCommandSpinner",
+						"Command " + commandArray.get(i) + ", inType: " + commandInTypeArray.get(i) + ", " +
+								"outType: " + commandOutTypeArray.get(i));
 			}
-		}
-		if (!nonScalarAttributeArray.isEmpty()) {
-			nonScalarAttributeArray.add(0, "Scalar");
-			ArrayAdapter<String> adapter = new ArrayAdapter<>(
-					this, android.R.layout.simple_spinner_item, nonScalarAttributeArray);
+			ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, commandArray);
 			adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-			Spinner attributeSpinner = (Spinner) findViewById(R.id.atk_panel_attribute_spinner);
-			attributeSpinner.setAdapter(adapter);
-			attributeSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+			NoSelectionSpinner sItems = (NoSelectionSpinner) findViewById(R.id.atk_panel_command_spinner);
+			sItems.setAdapter(adapter);
+			sItems.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
 				@Override
 				public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
-					String attName = nonScalarAttributeArray.get(position);
-					if (attName.equals("Scalar")) {
-						populateScalarListView();
+					if (firstSelection) {
+						Log.d("populateCommandSpinner", "Command spinner first selection, omitting action");
+						firstSelection = false;
 					} else {
-						if (attributeFuture != null) {
-							attributeFuture.cancel(true);
+						Log.d("populateCommandSpinner", "Position: " + position);
+						final String commandName = commandArray.get(position);
+						String commandInType = commandInTypeArray.get(position);
+						Log.d("populateCommandSpinner", "Executing " + commandName + ", inType: " + commandInType);
+						if (commandInType.equals("DevVoid")) {
+							Log.d("populateCommandSpinner", "Command run wth void argument");
+							executeCommand(commandName, "DevVoidArgument");
+						} else {
+							Log.d("populateCommandSpinner", "Prompt for command argument");
+							AlertDialog.Builder alert = new AlertDialog.Builder(context);
+							alert.setTitle(getString(R.string.command_input));
+							// Set an EditText view to get user input
+							final EditText input = new EditText(context);
+							alert.setMessage(getString(R.string.command_input_type) + commandInType);
+							alert.setView(input);
+							alert.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
+								public void onClick(DialogInterface dialog, int whichButton) {
+									executeCommand(commandName, input.getText().toString());
+								}
+							});
+							alert.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+								public void onClick(DialogInterface dialog, int whichButton) { }
+							});
+							alert.show();
 						}
-						populateAttributePlot(attName);
 					}
 				}
 
@@ -814,203 +499,187 @@ private void setHost() {
 				public void onNothingSelected(AdapterView<?> parentView) {
 				}
 			});
-		} else {
-			Spinner attributeSpinner = (Spinner) findViewById(R.id.atk_panel_attribute_spinner);
-			attributeSpinner.setVisibility(View.INVISIBLE);
-			populateScalarListView();
 		}
-	} catch (JSONException e) {
-		e.printStackTrace();
+	});
+}
+
+private void executeCommand(String commandName, String arginStr) {
+	Log.d("executeCommand()", "Executing command: " + commandName + " with argument: " + arginStr);
+	commandExecuteRunnable = new CommandExecuteRunnable(this, deviceName, tangoHost, tangoPort, commandName, arginStr);
+	if (commandExecuteThread != null) {
+		while (commandExecuteThread.isAlive()) { }
 	}
-}*/
+	commandExecuteThread = new Thread(commandExecuteRunnable);
+	commandExecuteThread.start();
+}
 
-/*private void populateAttributePlot(String attributeName) {
-	Log.d("populateAttributePlot()", "Polulating attribute plot");
-	if (attributeFuture != null) {
-		attributeFuture.cancel(true);
-	}
-	plotAttributeName = attributeName;
-	currentRunnable = rAttributePlot;
-	attributeFuture = scheduler.scheduleAtFixedRate(currentRunnable, refreshingPeriod, refreshingPeriod, MILLISECONDS);
-}*/
-
-/*private void populateScalarListView() {
-	if (!scalarAttrbuteArray.isEmpty()) {
-
-		Log.d("populateScalarListView", "Getting RelativeLayout");
-		RelativeLayout relativeLayout = (RelativeLayout) findViewById(R.id.atkPanel_innerLayout);
-
-		relativeLayout.removeAllViews();
-		numberOfScalars = scalarAttrbuteArray.size();
-		ids = new int[numberOfScalars][5];
-		for (int i = 0; i < numberOfScalars; i++) {
-			RelativeLayout.LayoutParams textViewLayParam = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams
-					.WRAP_CONTENT,
-					RelativeLayout.LayoutParams.WRAP_CONTENT);
-			RelativeLayout.LayoutParams editTextLayParam = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams
-					.WRAP_CONTENT,
-					RelativeLayout.LayoutParams.WRAP_CONTENT);
-			RelativeLayout.LayoutParams buttonLayParam = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams
-					.WRAP_CONTENT,
-					RelativeLayout.LayoutParams.WRAP_CONTENT);
-
-			TextView tv = new TextView(this);
-			ids[i][1] = generateViewId();
-			tv.setId(ids[i][1]);
-
-			EditText et = new EditText(this);
-			ids[i][2] = generateViewId();
-			et.setId(ids[i][2]);
-
-			Button b = new Button(this);
-			ids[i][3] = generateViewId();
-			b.setId(ids[i][3]);
-
-			if (i == 0) {
-				editTextLayParam.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-
-			} else {
-				editTextLayParam.addRule(RelativeLayout.BELOW, ids[i - 1][2]);
-			}
-
-			editTextLayParam.addRule(RelativeLayout.CENTER_HORIZONTAL);
-
-			buttonLayParam.addRule(RelativeLayout.ALIGN_BASELINE, ids[i][1]);
-			buttonLayParam.addRule(RelativeLayout.RIGHT_OF, ids[i][2]);
-
-			textViewLayParam.addRule(RelativeLayout.ALIGN_BASELINE, ids[i][2]);
-			textViewLayParam.addRule(RelativeLayout.LEFT_OF, ids[i][2]);
-
-			tv.setText(scalarAttrbuteArray.get(i));
-			tv.setLayoutParams(textViewLayParam);
-
-			et.setLayoutParams(editTextLayParam);
-			et.setFocusable(false);
-			et.setWidth(300);
-
-			b.setLayoutParams(buttonLayParam);
-			b.setText("Edit");
-			if (attributeWritableArray[i]) {
-				b.setVisibility(View.VISIBLE);
-				b.setTag(scalarAttrbuteArray.get(i));
-				b.setOnClickListener(new View.OnClickListener() {
-					@Override
-					public void onClick(View v) {
-						//int rowId = (int) v.getTag(1);
-						final String attName = (String) v.getTag();
-						Log.d("populateCommandSpinner", "Prompt for attribute new value");
-						AlertDialog.Builder alert = new AlertDialog.Builder(context);
-						alert.setTitle(getString(R.string.attribute_new_value));
-						alert.setMessage(getString(R.string.new_value_for_att) + attName);
-
-						// Set an EditText view to get user input
-						final EditText input = new EditText(context);
-
-						alert.setView(input);
-						alert.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
-							public void onClick(DialogInterface dialog, int whichButton) {
-								updateAttribute(attName, input.getText().toString());
-							}
-						});
-
-						alert.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
-							public void onClick(DialogInterface dialog, int whichButton) { }
-						});
-
-						alert.show();
-
-					}
-				});
-			} else {
-				b.setVisibility(View.INVISIBLE);
-			}
-
-			relativeLayout.addView(tv);
-			relativeLayout.addView(et);
-			relativeLayout.addView(b);
-		}
-
-		JSONObject request = new JSONObject();
-		try {
-			request.put("attCount", numberOfScalars);
-			for (int i = 0; i < numberOfScalars; i++) {
-				request.put("att" + i, scalarAttrbuteArray.get(i));
-				request.put("attID" + i, ids[i][2]);
-			}
-		} catch (JSONException e) {
-			e.printStackTrace();
-		}
-		String urlReadAttributesQuery = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort +
-				"/Device/" + deviceName + "/read_attributes";
-		HeaderJsonObjectRequest jsObjRequestCommands =
-				new HeaderJsonObjectRequest(Request.Method.PUT, urlReadAttributesQuery, request,
-						new Response.Listener<JSONObject>() {
-							@Override
-							public void onResponse(JSONObject response) {
-								try {
-									if (response.getString("connectionStatus").equals("OK")) {
-										Log.d("populateScalarListView", "Device connection OK - read attribute values");
-										updateScalarListView(response);
-									} else {
-										Log.d("populateScalarListView", "Tango database API returned message:");
-										Log.d("populateScalarListView", response.getString("connectionStatus"));
-									}
-								} catch (JSONException e) {
-									Log.d("populateScalarListView", "Problem with JSON object");
-									e.printStackTrace();
-								}
-							}
-						}, new Response.ErrorListener() {
-					@Override
-					public void onErrorResponse(VolleyError error) {
-						jsonRequestErrorHandler(error);
-					}
-				}, userName, userPassword);
-		jsObjRequestCommands.setShouldCache(false);
-		queue.add(jsObjRequestCommands);
-		if (attributeFuture != null) {
-			attributeFuture.cancel(true);
-		}
-
-		currentRunnable = rAttributes;
-		attributeFuture = scheduler.scheduleAtFixedRate(currentRunnable, refreshingPeriod, refreshingPeriod, MILLISECONDS);
-	}
-}*/
-
-/*private void updateAttribute(String attName, String argin) {
-	String url = restHost + "/Tango/rest/" + tangoHost + ":" + tangoPort + "/Device/" + deviceName +
-			"/write_attribute/" + attName + "/" +
-			argin;
-	JsonObjectRequest jsObjRequest =
-			new JsonObjectRequest(Request.Method.PUT, url, null, new Response.Listener<JSONObject>() {
-				@Override
-				public void onResponse(JSONObject response) {
-					try {
-						if (response.getString("connectionStatus").equals("OK")) {
-							Log.v("Update attribute", "Device connection OK - wrote attribute");
-							Toast.makeText(getApplicationContext(), response.getString("connectionStatus"),
-									Toast.LENGTH_SHORT).show();
-						} else {
-							Toast.makeText(getApplicationContext(), response.getString("connectionStatus"),
-									Toast.LENGTH_SHORT).show();
-							Log.d("Update attribute", "Tango database API returned message:");
-							Log.d("Update attribute", response.getString("connectionStatus"));
-						}
-					} catch (JSONException e) {
-						Log.d("Update attribute", "Problem with JSON object");
-						e.printStackTrace();
-					}
-				}
-			}, new Response.ErrorListener() {
-				@Override
-				public void onErrorResponse(VolleyError error) {
-					Log.d("Update attribute", "Connection error!");
-					error.printStackTrace();
+public void commandOutput(String message) {
+	commandOut = message;
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			AlertDialog.Builder builder = new AlertDialog.Builder(context);
+			builder.setMessage(commandOut).setTitle("Command output");
+			builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+				public void onClick(DialogInterface dialog, int id) {
 				}
 			});
-	jsObjRequest.setShouldCache(false);
-	queue.add(jsObjRequest);
-}*/
+			AlertDialog dialog = builder.create();
+			dialog.show();
+		}
+	});
+}
+
+public void toastMessage(String messageToDisplay) {
+	message = messageToDisplay;
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT).show();
+		}
+	});
+}
+
+private void populateAttributePlot(String attributeName) {
+	Log.d("populateAttributePlot()", "Polulating attribute plot");
+
+	if (attributeListThread != null) {
+		Log.d("onDestroy()", "attributeListThread is not null");
+		Log.d("onDestroy()", "Stopping attributeListThread");
+		attributeListThread.interrupt();
+	}
+	if (attributesThread != null) {
+		Log.d("onDestroy()", "attributesThread is not null");
+		Log.d("onDestroy()", "Stopping attributesThread");
+		attributesThread.interrupt();
+	}
+	if (plotThread != null) {
+		Log.d("onDestroy()", "plotThread is not null");
+		Log.d("onDestroy()", "Stopping plotThread");
+		plotThread.interrupt();
+	}
+	plotAttributeName = attributeName;
+	plotRunnable = new PlotRunnable(this, deviceName, tangoHost, tangoPort, plotAttributeName, refreshingPeriod);
+	plotThread = new Thread(plotRunnable);
+	plotThread.start();
+}
+
+private void populateScalarListView() {
+	if (!scalarAttrbuteArray.isEmpty()) {
+
+		runOnUiThread(new Runnable() {
+			@Override
+			public void run() {
+
+				Log.d("populateScalarListView", "Getting RelativeLayout");
+				RelativeLayout relativeLayout = (RelativeLayout) findViewById(R.id.atkPanel_innerLayout);
+
+				relativeLayout.removeAllViews();
+				numberOfScalars = scalarAttrbuteArray.size();
+				ids = new int[numberOfScalars][5];
+
+				for (int i = 0; i < numberOfScalars; i++) {
+					RelativeLayout.LayoutParams textViewLayParam = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams
+							.WRAP_CONTENT,
+							RelativeLayout.LayoutParams.WRAP_CONTENT);
+					RelativeLayout.LayoutParams editTextLayParam = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams
+							.WRAP_CONTENT,
+							RelativeLayout.LayoutParams.WRAP_CONTENT);
+					RelativeLayout.LayoutParams buttonLayParam = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams
+							.WRAP_CONTENT,
+							RelativeLayout.LayoutParams.WRAP_CONTENT);
+
+					TextView tv = new TextView(context);
+					ids[i][1] = generateViewId();
+					tv.setId(ids[i][1]);
+
+					EditText et = new EditText(context);
+					ids[i][2] = generateViewId();
+					et.setId(ids[i][2]);
+
+					Button b = new Button(context);
+					ids[i][3] = generateViewId();
+					b.setId(ids[i][3]);
+
+					if (i == 0) {
+						editTextLayParam.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+
+					} else {
+						editTextLayParam.addRule(RelativeLayout.BELOW, ids[i - 1][2]);
+					}
+
+					editTextLayParam.addRule(RelativeLayout.CENTER_HORIZONTAL);
+
+					buttonLayParam.addRule(RelativeLayout.ALIGN_BASELINE, ids[i][1]);
+					buttonLayParam.addRule(RelativeLayout.RIGHT_OF, ids[i][2]);
+
+					textViewLayParam.addRule(RelativeLayout.ALIGN_BASELINE, ids[i][2]);
+					textViewLayParam.addRule(RelativeLayout.LEFT_OF, ids[i][2]);
+
+					tv.setText(scalarAttrbuteArray.get(i));
+					tv.setLayoutParams(textViewLayParam);
+
+					et.setLayoutParams(editTextLayParam);
+					et.setFocusable(false);
+					et.setWidth(300);
+
+					b.setLayoutParams(buttonLayParam);
+					b.setText("Edit");
+					if (attributeWritableArray[i]) {
+						b.setVisibility(View.VISIBLE);
+						b.setTag(scalarAttrbuteArray.get(i));
+						b.setOnClickListener(new View.OnClickListener() {
+							@Override
+							public void onClick(View v) {
+								//int rowId = (int) v.getTag(1);
+								final String attName = (String) v.getTag();
+								Log.d("populateCommandSpinner", "Prompt for attribute new value");
+								AlertDialog.Builder alert = new AlertDialog.Builder(context);
+								alert.setTitle(getString(R.string.attribute_new_value));
+								alert.setMessage(getString(R.string.new_value_for_att) + attName);
+
+								// Set an EditText view to get user input
+								final EditText input = new EditText(context);
+
+								alert.setView(input);
+								alert.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
+									public void onClick(DialogInterface dialog, int whichButton) {
+										updateAttribute(attName, input.getText().toString());
+									}
+								});
+
+								alert.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+									public void onClick(DialogInterface dialog, int whichButton) { }
+								});
+
+								alert.show();
+
+							}
+						});
+					} else {
+						b.setVisibility(View.INVISIBLE);
+					}
+					relativeLayout.addView(tv);
+					relativeLayout.addView(et);
+					relativeLayout.addView(b);
+				}
+				startAttributeRefreshing();
+			}
+		});
+	}
+}
+
+private void updateAttribute(String attName, String argin) {
+	AttributeUpdateRunnable attributeUpdateRunnable = new AttributeUpdateRunnable(this, deviceName, tangoHost,
+			tangoPort, attName, argin);
+	if (attributeUpdateThread != null) {
+		if (attributeUpdateThread.isAlive()) {
+			while (attributeUpdateThread.isAlive()) {}
+		}
+	}
+	attributeUpdateThread = new Thread(attributeUpdateRunnable);
+	attributeUpdateThread.start();
+}
 
 /**
  * Method updating values of scalar attributes.
@@ -1018,13 +687,28 @@ private void setHost() {
  * @param response HashMap containing attribute IDs and values
  */
 public void updateScalarListView(HashMap<String, String> response) {
-	EditText editText;
-
-	int attCount = Integer.parseInt(response.get("attCount"));
-	for (int i = 0; i < attCount; i++) {
-		editText = (EditText) findViewById(Integer.parseInt(response.get("attID" + i)));
-		editText.setText(response.get("attValue" + i));
-	}
+	hmResponse = response;
+	//Log.d("updateScalarListView()", "Updating scalar list view");
+	//Log.d("updateScalarListView()", "Received response: " + response.toString());
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			EditText editText;
+			int attCount = Integer.parseInt(hmResponse.get("attCount"));
+			//Log.d("updateScalarListView()", "Received " + attCount + " attributes");
+			for (int i = 0; i < attCount; i++) {
+				//Log.d("updateScalarListView()",
+				//		"Updating attribute[ " + i + "]" + hmResponse.get("attID" + i) + "with value: " + hmResponse.get
+				//				("attValue" + i));
+				editText = (EditText) findViewById(Integer.parseInt(hmResponse.get("attID" + i)));
+				//Log.d("updateScalarListView()", "EditText ID: " + editText.getId());
+				String attValue = hmResponse.get("attValue" + i);
+				//Log.d("updateScalarListView()", "attValue: " + attValue);
+				editText.setText(attValue);
+				//Log.d("updateScalarListView()", "Updated editText[" + editText.getId() + "] with value: " + attValue);
+			}
+		}
+	});
 }
 
 public void displayErrorMessage(final String message, DevFailed e) {
@@ -1035,6 +719,19 @@ public void displayErrorMessage(final String message, DevFailed e) {
 	// show dialog box with error message
 	AlertDialog.Builder builder = new AlertDialog.Builder(context);
 	builder.setMessage(e.toString()).setTitle("Error!").setPositiveButton(getString(R.string.ok_button),
+			null);
+	AlertDialog dialog = builder.create();
+	dialog.show();
+}
+
+public void displayErrorMessage(final String message) {
+	// print error to LogCat
+	Log.d("displayErrorMessage()", "Error occurred!");
+	Log.d("displayErrorMessage()", message);
+
+	// show dialog box with error message
+	AlertDialog.Builder builder = new AlertDialog.Builder(context);
+	builder.setMessage(message).setTitle("Error!").setPositiveButton(getString(R.string.ok_button),
 			null);
 	AlertDialog dialog = builder.create();
 	dialog.show();
@@ -1052,4 +749,172 @@ public void populateStatus(String status) {
 
 }
 
+public void populateAttributeSpinner(HashMap<String, String> response) {
+	Log.d("popAttributeSpinner", "Populating attribute spinner");
+	scalarAttrbuteArray = new ArrayList<>();
+	nonScalarAttributeArray = new ArrayList<>();
+
+	int attributeCount = Integer.parseInt(response.get("attCount"));
+	attributeWritableArray = new boolean[attributeCount];
+	for (int i = 0; i < attributeCount; i++) {
+		attributeName = response.get("attribute" + i);
+		if (Boolean.parseBoolean(response.get("attScalar" + i))) {
+			if (!attributeName.equals("State") && !attributeName.equals("Status")) {
+				scalarAttrbuteArray.add(attributeName);
+				attributeWritableArray[i] = Boolean.parseBoolean(response.get("attWritable" + i));
+			}
+		} else {
+			nonScalarAttributeArray.add(attributeName);
+		}
+	}
+	if (!nonScalarAttributeArray.isEmpty()) {
+		nonScalarAttributeArray.add(0, "Scalar");
+
+		runOnUiThread(new Runnable() {
+			@Override
+			public void run() {
+				ArrayAdapter<String> adapter = new ArrayAdapter<>(
+						context, android.R.layout.simple_spinner_item, nonScalarAttributeArray);
+				adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+				Spinner attributeSpinner = (Spinner) findViewById(R.id.atk_panel_attribute_spinner);
+				attributeSpinner.setAdapter(adapter);
+				attributeSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+					@Override
+					public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
+						String attName = nonScalarAttributeArray.get(position);
+						if (attName.equals("Scalar")) {
+							populateScalarListView();
+						} else {
+							populateAttributePlot(attName);
+						}
+					}
+
+					@Override
+					public void onNothingSelected(AdapterView<?> parentView) {
+					}
+				});
+			}
+		});
+
+	} else {
+		runOnUiThread(new Runnable() {
+			@Override
+			public void run() {
+				Spinner attributeSpinner = (Spinner) findViewById(R.id.atk_panel_attribute_spinner);
+				attributeSpinner.setVisibility(View.INVISIBLE);
+
+			}
+		});
+		populateScalarListView();
+	}
+
+}
+
+public void updatePlotView(Number[] series, String label) {
+	Log.d("rAttributePlot.run()", "Device connection OK");
+	plotSeries = series;
+	plotLabel = label;
+
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			plot = new XYPlot(context, "");
+			plotHeight = scrollView.getHeight();
+			plot.setMinimumHeight(plotHeight);
+			Log.d("populateAttributePlot()", "Plot height set to: " + plotHeight);
+			relativeLayout.removeAllViews();
+			relativeLayout.addView(plot);
+			Log.v("rAttributePlot.run()", "Have " + plotSeries.length + " elements");
+			XYSeries series1;
+			series1 = new SimpleXYSeries(Arrays.asList(plotSeries), SimpleXYSeries.ArrayFormat.Y_VALS_ONLY, plotLabel);
+			LineAndPointFormatter series1Format = new LineAndPointFormatter();
+			series1Format.setPointLabelFormatter(new PointLabelFormatter());
+			series1Format.configure(getApplicationContext(), R.xml.line_point_formatter_with_plf1);
+			// add a new series' to the xyplot:
+			plot.addSeries(series1, series1Format);
+			plot.setTicksPerRangeLabel(3);
+			plot.getGraphWidget().setDomainLabelOrientation(-45);
+			plot.getLegendWidget().setTableModel(new DynamicTableModel(1, 1));
+			plot.getLegendWidget().position(10, XLayoutStyle.ABSOLUTE_FROM_LEFT, 10, YLayoutStyle.ABSOLUTE_FROM_BOTTOM,
+					AnchorPosition.LEFT_BOTTOM);
+			plot.getLegendWidget().setSize(new SizeMetrics(55, SizeLayoutType.ABSOLUTE, 100, SizeLayoutType.FILL));
+		}
+	});
+}
+
+public void updatePlotView(double[][] plotValues) {
+	doublePlotSeries = plotValues;
+
+	runOnUiThread(new Runnable() {
+		@Override
+		public void run() {
+			TextView textViewMaxValue = prepareTextViewMaxValue(maxId);
+			TextView textViewMinValue = prepareTextViewMinValue(minId);
+			ImageView imageViewScale = prepareScaleImageView(maxId, scaleId);
+			ImageView imageViewPlot = preparePlotImageView(scaleId, plotId);
+			plotHeight = scrollView.getHeight();
+			plotWidth = scrollView.getWidth() - 50;
+			if (plotHeight < plotWidth) {
+				imageViewPlot.setMinimumHeight(plotHeight);
+				imageViewPlot.setMinimumWidth(plotHeight);
+			} else {
+				imageViewPlot.setMinimumHeight(plotWidth);
+				imageViewPlot.setMinimumWidth(plotWidth);
+			}
+
+			imageViewScale.setMinimumWidth(20);
+			imageViewScale.setMinimumHeight(plotHeight);
+			Log.d("rAttributePlot.run() IM", "Plot height: " + plotHeight);
+			imageViewScale.setScaleType(ImageView.ScaleType.FIT_XY);
+
+			relativeLayout.removeAllViews();
+			relativeLayout.addView(textViewMaxValue);
+			relativeLayout.addView(textViewMinValue);
+			relativeLayout.addView(imageViewPlot);
+			relativeLayout.addView(imageViewScale);
+
+			Bitmap b = Bitmap.createBitmap(doublePlotSeries.length, doublePlotSeries[0].length,
+					Bitmap.Config.RGB_565);
+			double minValue = doublePlotSeries[0][0];
+			double maxValue = doublePlotSeries[0][0];
+			for (int i = 0; i < doublePlotSeries.length; i++) {
+				for (int j = 0; j < doublePlotSeries[0].length; j++) {
+					if (minValue > doublePlotSeries[i][j]) {
+						minValue = doublePlotSeries[i][j];
+					}
+					if (maxValue < doublePlotSeries[i][j]) {
+						maxValue = doublePlotSeries[i][j];
+					}
+				}
+			}
+			System.out.println("Min: " + minValue + "Max: " + maxValue);
+			double range = maxValue - minValue;
+			float step = (float) (330 / range);
+
+			int color;
+			float hsv[] = {0, 1, 1};
+
+			for (int i = 1; i < doublePlotSeries.length; i++) {
+				for (int j = 1; j < doublePlotSeries[0].length; j++) {
+					hsv[0] = 330 - (float) (doublePlotSeries[i][j] * step);
+					color = Color.HSVToColor(hsv);
+					b.setPixel(doublePlotSeries.length - i, doublePlotSeries[0].length - j, color);
+				}
+			}
+			imageViewPlot.setImageBitmap(b);
+			textViewMaxValue.setText("" + maxValue);
+			textViewMinValue.setText("" + minValue);
+			Bitmap scaleBitmap = Bitmap.createBitmap(20, 330, Bitmap.Config.RGB_565);
+			for (int j = 0; j < 330; j++) {
+				hsv[0] = j;
+				color = Color.HSVToColor(hsv);
+				for (int k = 0; k < 20; k++) {
+					scaleBitmap.setPixel(k, j, color);
+				}
+			}
+			imageViewScale.setImageBitmap(scaleBitmap);
+			imageViewScale.setScaleType(ImageView.ScaleType.FIT_XY);
+		}
+	});
+}
 }

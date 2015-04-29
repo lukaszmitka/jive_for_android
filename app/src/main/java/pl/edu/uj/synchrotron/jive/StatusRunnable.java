@@ -21,20 +21,21 @@ private String tangoHost;
 private String tangoPort;
 private String deviceName;
 private ATKPanelCallback activityCallback;
-private boolean interrupted = false;
-private boolean connectionOK = false;
+private int refreshing;
 
-public StatusRunnable(ATKPanelCallback callback, String devName, String host, String port) {
+public StatusRunnable(ATKPanelCallback callback, String devName, String host, String port, int refreshingPeriod) {
 	tangoHost = host;
 	tangoPort = port;
 	deviceName = devName;
 	activityCallback = callback;
+	refreshing = refreshingPeriod;
 	Log.d("StatusRunnable", "Created instance, arguments: devName: " + devName + " TANGO_HOST: " + host + ":" + port);
 }
 
 @Override
 public void run() {
-	while (!interrupted) {
+	while (!activityCallback.areThreadsInterrupted()) {
+		Log.d("StatusRunnable.run()", "No interrupt");
 		try {
 			DeviceProxy dev = new DeviceProxy(deviceName, tangoHost, tangoPort);
 			Log.d("StatusRunnable.run()", "Connected with device");
@@ -50,17 +51,14 @@ public void run() {
 		} catch (DevFailed devFailed) {
 			devFailed.printStackTrace();
 		}
-		if (Thread.interrupted()) {
-			interrupted = true;
-		} else {
-			try {
-				Thread.sleep(1000);
-			} catch (InterruptedException e) {
-				//e.printStackTrace();
-				Log.d("StatusRunnable.run()", "Stopping thread");
-				interrupted = true;
-			}
+		try {
+			Thread.sleep(refreshing);
+		} catch (InterruptedException e) {
+			Log.d("StatusRunnable.run()", "Thread interrupted while sleeping");
+			Thread.currentThread().interrupt();
+			return;
 		}
 	}
+	Log.d("StatusRunnable.run()", "Interrupt occurred");
 }
 }
